@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Konkan Rail Coverage</title>
+<meta name="description" content="Airtel LTE coverage and internet availability measured on a train from Madgaon to Panvel.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 12h2v2H2zM6 9h2v5H6zM10 5h2v9h-2z' fill='%230ca30c'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="vendor/leaflet.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <header class="top">
+    <div>
+      <p class="eyebrow">Field measurement · Airtel LTE (M2M SIM)</p>
+      <h1>Mobile coverage on the Konkan Railway</h1>
+      <p class="sub" id="sub">Loading trip…</p>
+    </div>
+  </header>
+
+  <section class="kpis" id="kpis" aria-label="Headline numbers"></section>
+
+  <section class="card">
+    <div class="card-head">
+      <div>
+        <h2>Route map</h2>
+        <p class="hint">Each stretch of track is coloured by what the device measured there. Hover the chart below to follow the train.</p>
+      </div>
+      <div class="seg" role="group" aria-label="Colour the map by">
+        <button data-mode="inet" class="on">Internet</button>
+        <button data-mode="sig">Signal</button>
+      </div>
+    </div>
+    <div class="legend" id="legend"></div>
+    <div id="map" role="img" aria-label="Map of the route coloured by coverage"></div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <div>
+        <h2>Along the route</h2>
+        <p class="hint">Distance from Madgaon. Top bands show internet and signal class, the line shows LTE signal strength (RSRP, higher is better).</p>
+      </div>
+    </div>
+    <div id="route" class="route"></div>
+  </section>
+
+  <div class="two">
+    <section class="card">
+      <div class="card-head"><div>
+        <h2>Station to station</h2>
+        <p class="hint">Share of each stretch's distance where the internet worked.</p>
+      </div></div>
+      <div class="table-wrap"><table id="segments"></table></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><div>
+        <h2>Dead zones</h2>
+        <p class="hint">Stretches of a minute or more without working internet, longest first. Click one to see it on the map.</p>
+      </div></div>
+      <div class="table-wrap"><table id="dead"></table></div>
+      <button class="more" id="more" hidden></button>
+    </section>
+  </div>
+
+  <section class="card notes">
+    <h2>How this was measured</h2>
+    <ul>
+      <li>A LilyGo T-SIM7670G-S3 (SIMCom SIM7670G LTE modem with GNSS) rode in the coach and logged every 5 seconds: GPS position, network registration and LTE signal (RSRP, SINR, band).</li>
+      <li>Every 15 seconds it sent 3 pings to 8.8.8.8. <b>Working</b> means all replies arrived within 1 s, <b>degraded</b> means some were lost or slow, <b>not working</b> means none came back or there was no network.</li>
+      <li>Signal classes use RSRP: <b>good</b> ≥ −100 dBm, <b>fair</b> −100 to −110 dBm, <b>poor</b> below −110 dBm. Percentages are by distance travelled, not by time, so long halts at stations don't skew them.</li>
+      <li>Positions inside tunnels (no GPS) are interpolated between the last and next fix. Station locations are approximate. One phone-class antenna inside a steel coach reads lower than a handset by the window; treat it as a lower bound.</li>
+    </ul>
+  </section>
+</main>
+<div class="tip" id="tip" hidden></div>
+<script src="vendor/leaflet.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
