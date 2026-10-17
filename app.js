@@ -16,13 +16,14 @@ const CLASSES = {
     { label: 'Poor', color: '--serious' },
     { label: 'No service', color: '--critical' },
   ],
-  // Train speed, km/h (sequential: light = slow, dark = fast).
+  // Train speed, km/h: red = stopped, green = fast. Stops also get sized circles,
+  // so the reading never depends on red vs green alone.
   spd: [
-    { label: '< 20', color: '--spd0', max: 20 },
-    { label: '20–50', color: '--spd1', max: 50 },
-    { label: '50–80', color: '--spd2', max: 80 },
-    { label: '80–110', color: '--spd3', max: 110 },
-    { label: '≥ 110 km/h', color: '--spd4', max: Infinity },
+    { label: 'Stopped', color: '--spd0', max: 5 },
+    { label: '5–30', color: '--spd1', max: 30 },
+    { label: '30–60', color: '--spd2', max: 60 },
+    { label: '60–90', color: '--spd3', max: 90 },
+    { label: '≥ 90 km/h', color: '--spd4', max: Infinity },
   ],
 };
 // The class that means "no connectivity" in each mode: drawn thicker and on top.
@@ -44,7 +45,7 @@ const pct = x => (x * 100).toFixed(x > 0 && x < 0.1 ? 1 : 0) + '%';
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 let D, N, START, mode = 'inet';
-let map, trackLayer, dzLayer, hoverMarker;
+let map, trackLayer, dzLayer, stopLayer, hoverMarker;
 
 fetch('data/trip.json')
   .then(r => r.json())
@@ -90,6 +91,26 @@ function computeTunnels() {
     }
     i = j;
   }
+}
+
+// Stops: runs below 5 km/h lasting >= 60 s (moving blips under 60 s don't split a stop).
+// D.stops = [{ i, t0, t1, km, halt, where }]
+function computeStops() {
+  const { t, km, v } = D.cols;
+  const raw = [];
+  for (let i = 0; i < N; i++) {
+    if (v[i] >= 5) continue;
+    let j = i;
+    while (j + 1 < N && v[j + 1] < 5) j++;
+    const prev = raw[raw.length - 1];
+    if (prev && t[i] - t[prev.j] < 60) prev.j = j; else raw.push({ i, j });
+    i = j;
+  }
+  D.stops = raw.filter(r => t[r.j] - t[r.i] + 5 >= 60).map(r => {
+    const mid = (r.i + r.j) >> 1;
+    const halt = D.stations.find(s => HALTS.has(s.name) && Math.abs(s.km - km[mid]) < 2);
+    return { i: mid, t0: t[r.i], t1: t[r.j] + 5, km: km[mid], halt: halt?.name, where: between(km[mid]) };
+  });
 }
 
 // Fraction of [km0, km1] that lies inside tunnels.
@@ -174,6 +195,7 @@ function init(data) {
   START = D.meta.start;
   computeSpeeds();
   computeTunnels();
+  computeStops();
   const m = D.meta;
   const date = new Date(m.start * 1000).toLocaleDateString('en-IN', {
     timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric',
@@ -195,6 +217,7 @@ function init(data) {
     mode = b.dataset.mode;
     drawTrack();
     drawDeadZonePins();
+    drawStops();
     renderLegend();
   }));
   let rt;
@@ -257,8 +280,25 @@ function initMap() {
   // The canvas renderer needs a view before any vector layer is added.
   map.fitBounds(D.cols.lat.map((la, i) => [la, D.cols.lon[i]]), { padding: [20, 20] });
 
+  // Tunnels: a wide dark tube under the coloured track, with a portal at each end.
+  // Created before the track so the track is drawn on top of it.
+  const tunnelLayer = L.layerGroup().addTo(map);
+  for (const tn of D.tunnels) {
+    const ll = [];
+    for (let i = tn.i0; i <= tn.i1; i++) ll.push([D.cols.lat[i], D.cols.lon[i]]);
+    const tip = `<b>Probable tunnel</b><br>${(tn.km1 - tn.km0).toFixed(1)} km · ${fmtDur(tn.t1 - tn.t0)} without GPS<br>` +
+      `${ist(tn.t0)} IST · ${esc(between((tn.km0 + tn.km1) / 2))}`;
+    L.polyline(ll, { color: '#2b2b29', weight: 22, opacity: 0.85, lineCap: 'butt' })
+      .bindTooltip(tip, { sticky: true }).addTo(tunnelLayer);
+    for (const p of [ll[0], ll[ll.length - 1]]) {
+      L.circleMarker(p, { radius: 4, color: '#ffffff', weight: 1.5, fillColor: '#2b2b29', fillOpacity: 1, interactive: false })
+        .addTo(tunnelLayer);
+    }
+  }
   trackLayer = L.layerGroup().addTo(map);
   drawTrack();
+  // Re-adding the overlay puts it on top; redraw the track over it.
+  map.on('overlayadd', () => { drawTrack(); drawDeadZonePins(); drawStops(); });
 
   // Only the 22120 halts and the point where the log ends are marked.
   for (const s of D.stations.filter(s => isKey(s.name))) {
@@ -275,16 +315,9 @@ function initMap() {
   }
   dzLayer = L.layerGroup().addTo(map);
   drawDeadZonePins();
+  stopLayer = L.layerGroup().addTo(map);
+  drawStops();
 
-  // Tunnels: dark dashed centre line over the coloured track. Toggle in the layers control.
-  const tunnelLayer = L.layerGroup().addTo(map);
-  for (const tn of D.tunnels) {
-    const ll = [];
-    for (let i = tn.i0; i <= tn.i1; i++) ll.push([D.cols.lat[i], D.cols.lon[i]]);
-    L.polyline(ll, { color: '#1a1a19', weight: 3, dashArray: '1 6', lineCap: 'round', opacity: 0.9 })
-      .bindTooltip(`Probable tunnel · ${(tn.km1 - tn.km0).toFixed(1)} km · ${fmtDur(tn.t1 - tn.t0)} without GPS`, { sticky: true })
-      .addTo(tunnelLayer);
-  }
   L.control.layers(base, { 'Tunnels (GPS lost)': tunnelLayer }, { position: 'topright' }).addTo(map);
   hoverMarker = L.circleMarker([0, 0], { radius: 8, color: '#0b0b0b', weight: 2, fillOpacity: 0 });
 }
@@ -305,7 +338,7 @@ function drawTrack() {
   for (const r of rs) {
     const isBad = r.c === bad;
     if (isBad) {
-      L.polyline(coords(r.i0, r.i1), { color: css('--casing'), weight: 12, opacity: 1, interactive: false }).addTo(trackLayer);
+      L.polyline(coords(r.i0, r.i1), { color: css('--casing'), weight: 11, opacity: 1, interactive: false }).addTo(trackLayer);
     }
     L.polyline(coords(r.i0, r.i1), {
       color: css(CLASSES[mode][r.c].color), weight: isBad ? 8 : 4, opacity: 1, lineCap: isBad ? 'round' : 'butt',
@@ -313,6 +346,22 @@ function drawTrack() {
       const i = nearestIndex(e.latlng, r.i0, r.i1);
       showTip(e.originalEvent.clientX, e.originalEvent.clientY, i);
     }).on('mouseout', hideTip).addTo(trackLayer);
+  }
+}
+
+// Speed view: a circle at every stop, area proportional to how long the train stood.
+function stopRadius(z) { return 4 + Math.sqrt((z.t1 - z.t0) / 60) * 2.2; }
+function drawStops() {
+  stopLayer.clearLayers();
+  if (mode !== 'spd') return;
+  for (const z of D.stops.slice().sort((a, b) => (b.t1 - b.t0) - (a.t1 - a.t0))) {
+    L.circleMarker([D.cols.lat[z.i], D.cols.lon[z.i]], {
+      radius: stopRadius(z), color: '#ffffff', weight: 1.5, fillColor: css('--spd0'), fillOpacity: 0.85,
+    }).bindTooltip(
+      `<b>Stopped ${fmtDur(z.t1 - z.t0)}</b> · ${ist(z.t0)}–${ist(z.t1)} IST<br>` +
+      (z.halt ? `${esc(z.halt)} · ${TRAIN.number} halt` : `${esc(z.where)} · unscheduled`),
+      { direction: 'top' },
+    ).addTo(stopLayer);
   }
 }
 
@@ -353,7 +402,8 @@ function renderLegend() {
   $('#legend').innerHTML = items.map(c =>
     `<span><i class="sw" style="background:var(${c.color})"></i>${c.label} <b>${pct(c.share)}</b></span>`
   ).join('') + `<span style="color:var(--muted)">share of ${byTime ? 'time' : 'distance'}</span>` +
-    (mode === 'spd' ? '' : `<span><i class="dz-key">1</i>longest dead zones</span>`) +
+    (mode === 'spd' ? `<span><i class="stop-key"></i>stop ≥ 1 min (size = duration)</span>`
+      : `<span><i class="dz-key">1</i>longest dead zones</span>`) +
     `<span><i class="tun-key"></i>tunnel (GPS lost)</span>`;
 }
 
@@ -368,7 +418,7 @@ function showTip(x, y, i) {
     ['Internet', CLASSES.inet[inet ?? UNKNOWN].label + (c.ms[i] != null ? ` · ${c.ms[i]} ms` : '')],
     ['Signal', c.sig[i] === 3 ? 'No service' : `${CLASSES.sig[c.sig[i]].label} · ${c.rsrp[i]} dBm`],
     ['Band', c.band[i] || '–'],
-    ['Speed', `${c.v[i]} km/h` + (c.interp[i] ? ' (estimated)' : '')],
+    ['Speed', c.v[i] < 5 ? 'stopped' : `${c.v[i]} km/h` + (c.interp[i] ? ' (estimated)' : '')],
     ...(c.tun[i] ? [['Location', 'in a tunnel (GPS lost)']] : []),
   ];
   const tip = $('#tip');
@@ -400,7 +450,7 @@ function renderRoute() {
   const x = k => ml + (k / total) * pw;
 
   const bandH = 18, gap = 6;
-  const yInet = 0, ySig = bandH + gap, ySpd = 2 * (bandH + gap), yTun = 3 * (bandH + gap), tunH = 10;
+  const yInet = 0, ySig = bandH + gap, ySpd = 2 * (bandH + gap), yTun = 3 * (bandH + gap), tunH = bandH;
   const yStn = yTun + tunH + 8;
   const chartTop = yStn + 44, chartH = narrow ? 150 : 190;
   const H = chartTop + chartH + 26;
@@ -417,10 +467,15 @@ function renderRoute() {
       parts.push(`<rect x="${x(k0).toFixed(1)}" y="${y0}" width="${wpx.toFixed(1)}" height="${bandH}" fill="var(${CLASSES[kind][r.c].color})"/>`);
     }
   }
-  parts.push(`<text class="rowlabel" x="0" y="${yTun + 9}">Tunnels</text>`);
-  parts.push(`<rect x="${ml}" y="${yTun + tunH / 2 - 0.5}" width="${pw}" height="1" fill="var(--grid)"/>`);
+  // Stops of 2 min or more: red ticks over the speed band (a stop covers ~0 km, so it'd be invisible otherwise).
+  for (const z of D.stops) {
+    if (z.t1 - z.t0 < 120) continue;
+    parts.push(`<rect x="${(x(z.km) - 1.5).toFixed(1)}" y="${ySpd - 2}" width="3" height="${bandH + 4}" rx="1" fill="var(--spd0)" stroke="var(--surface)" stroke-width="1"/>`);
+  }
+  parts.push(`<text class="rowlabel" x="0" y="${yTun + 13}">Tunnels</text>`);
+  parts.push(`<rect x="${ml}" y="${yTun}" width="${pw}" height="${tunH}" fill="var(--grid)"/>`);
   for (const tn of D.tunnels) {
-    parts.push(`<rect x="${x(tn.km0).toFixed(1)}" y="${yTun}" width="${Math.max(1.5, x(tn.km1) - x(tn.km0)).toFixed(1)}" height="${tunH}" rx="2" fill="var(--text-2)"/>`);
+    parts.push(`<rect x="${x(tn.km0).toFixed(1)}" y="${yTun}" width="${Math.max(1.5, x(tn.km1) - x(tn.km0)).toFixed(1)}" height="${tunH}" fill="var(--text)"/>`);
   }
   // Station ticks + non-overlapping labels.
   let lastLabelEnd = -Infinity;
@@ -592,10 +647,15 @@ function renderSpeedChart() {
       const tested = b.inet[0] + b.inet[1] + b.inet[2];
       const sh = tested ? b.inet.map(x => x / tested) : [0, 0, 0];
       return `<tr>
-        <td><span class="tag"><i class="sw" style="background:var(${CLASSES.spd[k].color})"></i>${CLASSES.spd[k].label.replace(' km/h', '')} km/h${k === 0 ? ' <span class="muted">(incl. halts)</span>' : ''}</span></td>
+        <td><span class="tag"><i class="sw" style="background:var(${CLASSES.spd[k].color})"></i>${k === 0 ? 'Stopped <span class="muted">(&lt; 5 km/h)</span>' : CLASSES.spd[k].label.replace(' km/h', '') + ' km/h'}</span></td>
         <td class="n">${fmtDur(b.time)} <span class="muted">(${pct(b.time / total)})</span></td>
         <td class="n"><b>${tested ? pct(sh[0]) : '–'}</b></td>
         <td>${stackBar(sh, 'inet')}</td>
       </tr>`;
     }).join('') + '</tbody>';
+  const halts = D.stops.filter(z => z.halt), other = D.stops.filter(z => !z.halt);
+  const sum = a => fmtDur(a.reduce((x, z) => x + z.t1 - z.t0, 0));
+  $('#stopsummary').textContent =
+    `${D.stops.length} stops of a minute or more: ${halts.length} at ${TRAIN.number} halts (${sum(halts)}) ` +
+    `and ${other.length} unscheduled (${sum(other)}). Switch the map to Speed to see them.`;
 }

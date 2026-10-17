@@ -41,7 +41,7 @@
     <div class="card-head">
       <div>
         <h2>Along the route</h2>
-        <p class="hint">Distance from Madgaon. Top bands show internet, signal class and train speed (darker is faster); the line shows LTE signal strength (RSRP, higher is better).</p>
+        <p class="hint">Distance from Madgaon. Top bands show internet, signal class and train speed (red stopped → green fast, red ticks are stops); the line shows LTE signal strength (RSRP, higher is better).</p>
       </div>
     </div>
     <div id="route" class="route"></div>
@@ -50,9 +50,10 @@
   <section class="card">
     <div class="card-head"><div>
       <h2>Internet by train speed</h2>
-      <p class="hint">How long the train spent in each speed band, and how often the internet worked at that speed. Switch the map to <b>Speed</b> to see where it ran fast or slow.</p>
+      <p class="hint">How long the train spent in each speed band, and how often the internet worked at that speed. Switch the map to <b>Speed</b> to see where it ran fast, slow or stopped.</p>
     </div></div>
     <div class="table-wrap"><table id="speedchart"></table></div>
+    <p class="hint" id="stopsummary"></p>
   </section>
 
   <div class="two">

@@ -15,8 +15,8 @@
   --critical: #d03b3b;
   --unknown: #c9c8c1;
   --casing: #ffffff;
-  /* Speed: one-hue sequential ramp, light = slow, dark = fast */
-  --spd0: #86b6ef; --spd1: #5598e7; --spd2: #2a78d6; --spd3: #1c5cab; --spd4: #0d366b;
+  /* Speed: red = stopped → green = fast (stops also get sized circles) */
+  --spd0: #d73027; --spd1: #f46d43; --spd2: #fdae61; --spd3: #a6d96a; --spd4: #1a9850;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -32,7 +32,7 @@
     --line: #3987e5;
     --unknown: #4a4a46;
     --casing: #1a1a19;
-    --spd0: #b7d3f6; --spd1: #86b6ef; --spd2: #5598e7; --spd3: #2a78d6; --spd4: #184f95;
+    --spd0: #d73027; --spd1: #f46d43; --spd2: #fdae61; --spd3: #a6d96a; --spd4: #1a9850;
   }
 }
 :root[data-theme="dark"] {
@@ -48,7 +48,7 @@
   --line: #3987e5;
   --unknown: #4a4a46;
   --casing: #1a1a19;
-  --spd0: #b7d3f6; --spd1: #86b6ef; --spd2: #5598e7; --spd3: #2a78d6; --spd4: #184f95;
+  --spd0: #d73027; --spd1: #f46d43; --spd2: #fdae61; --spd3: #a6d96a; --spd4: #1a9850;
 }
 
 * { box-sizing: border-box; }
@@ -181,6 +181,12 @@ tr.sel td { background: var(--bg); }
 .muted { color: var(--muted); }
 
 .tun-key {
-  display: inline-block; width: 18px; height: 4px; border-radius: 2px; flex: none;
-  background: repeating-linear-gradient(90deg, var(--text) 0 2px, transparent 2px 6px);
+  display: inline-block; width: 22px; height: 10px; border-radius: 2px; flex: none;
+  background: linear-gradient(var(--good), var(--good)) center / 100% 3px no-repeat, #2b2b29;
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.stop-key {
+  display: inline-block; width: 12px; height: 12px; border-radius: 50%; flex: none;
+  background: var(--spd0); box-shadow: 0 0 0 1.5px #fff;
 }
