@@ -4,10 +4,13 @@ A static dashboard showing Airtel LTE coverage and internet availability measure
 
 It shows:
 - headline numbers
-- a route map coloured by internet or signal
-- coverage along the route by distance
-- station-to-station breakdown
+- a route map coloured by internet, signal or train speed, with 22120 halts, numbered dead zones and tunnels
+- coverage along the route by distance (internet, signal, speed and tunnel bands plus the RSRP line)
+- internet availability by train speed
+- a stop-to-stop breakdown between 22120 halts
 - a ranked list of dead zones
+
+Tunnels are inferred: any stretch of 15 s or more where GPS was lost while the train kept moving.
 
 ## Files
 

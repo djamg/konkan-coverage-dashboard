@@ -25,11 +25,12 @@
     <div class="card-head">
       <div>
         <h2>Route map</h2>
-        <p class="hint">Each stretch of track is coloured by what the device measured there. Large dots are 22120 halts, small dots are stations it passes through. Click a halt for scheduled vs actual time.</p>
+        <p class="hint">Each stretch of track is coloured by what the device measured there. Dots are 22120 halts (click one for scheduled vs actual time); numbered pins are the longest dead zones.</p>
       </div>
       <div class="seg" role="group" aria-label="Colour the map by">
         <button data-mode="inet" class="on">Internet</button>
         <button data-mode="sig">Signal</button>
+        <button data-mode="spd">Speed</button>
       </div>
     </div>
     <div class="legend" id="legend"></div>
@@ -40,10 +41,18 @@
     <div class="card-head">
       <div>
         <h2>Along the route</h2>
-        <p class="hint">Distance from Madgaon. Top bands show internet and signal class, the line shows LTE signal strength (RSRP, higher is better).</p>
+        <p class="hint">Distance from Madgaon. Top bands show internet, signal class and train speed (darker is faster); the line shows LTE signal strength (RSRP, higher is better).</p>
       </div>
     </div>
     <div id="route" class="route"></div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><div>
+      <h2>Internet by train speed</h2>
+      <p class="hint">How long the train spent in each speed band, and how often the internet worked at that speed. Switch the map to <b>Speed</b> to see where it ran fast or slow.</p>
+    </div></div>
+    <div class="table-wrap"><table id="speedchart"></table></div>
   </section>
 
   <div class="two">

@@ -16,7 +16,17 @@ const CLASSES = {
     { label: 'Poor', color: '--serious' },
     { label: 'No service', color: '--critical' },
   ],
+  // Train speed, km/h (sequential: light = slow, dark = fast).
+  spd: [
+    { label: '< 20', color: '--spd0', max: 20 },
+    { label: '20–50', color: '--spd1', max: 50 },
+    { label: '50–80', color: '--spd2', max: 80 },
+    { label: '80–110', color: '--spd3', max: 110 },
+    { label: '≥ 110 km/h', color: '--spd4', max: Infinity },
+  ],
 };
+// The class that means "no connectivity" in each mode: drawn thicker and on top.
+const BAD = { inet: 2, sig: 3 };
 const UNKNOWN = 3;  // index used for inet === null
 // Train 22120 (Madgaon – Mumbai CSMT Tejas Express) halts with scheduled times
 // (ConfirmTkt). Thane, Dadar and CSMT come after the log ends, so they're omitted.
@@ -34,7 +44,7 @@ const pct = x => (x * 100).toFixed(x > 0 && x < 0.1 ? 1 : 0) + '%';
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 let D, N, START, mode = 'inet';
-let map, trackLayer, hoverMarker;
+let map, trackLayer, dzLayer, hoverMarker;
 
 fetch('data/trip.json')
   .then(r => r.json())
@@ -45,8 +55,53 @@ fetch('data/trip.json')
 
 function cls(kind, i) {
   if (kind === 'inet') return D.cols.inet[i] ?? UNKNOWN;
+  if (kind === 'spd') return CLASSES.spd.findIndex(c => D.cols.v[i] < c.max);
   return D.cols.sig[i];
 }
+
+// Speed for every sample: GPS speed where there was a fix, otherwise distance
+// over time across a ±30 s window (tunnels).
+function computeSpeeds() {
+  const { t, km, spd, interp } = D.cols;
+  D.cols.v = t.map((_, i) => {
+    if (spd[i] != null && !interp[i]) return spd[i];
+    let a = i, b = i;
+    while (a > 0 && t[i] - t[a - 1] <= 30) a--;
+    while (b < N - 1 && t[b + 1] - t[i] <= 30) b++;
+    return t[b] > t[a] ? Math.round(((km[b] - km[a]) / (t[b] - t[a])) * 3600) : 0;
+  });
+}
+
+// Probable tunnels: runs without a GPS fix lasting >= 15 s while the train kept moving.
+// D.tunnels = [{ i0, i1, km0, km1, t0, t1 }], D.cols.tun[i] = 1 inside one.
+function computeTunnels() {
+  const { t, km, interp } = D.cols;
+  D.tunnels = [];
+  D.cols.tun = new Uint8Array(N);
+  for (let i = 0; i < N; i++) {
+    if (!interp[i]) continue;
+    let j = i;
+    while (j + 1 < N && interp[j + 1]) j++;
+    const a = Math.max(0, i - 1), b = Math.min(N - 1, j + 1);  // last fix before, first fix after
+    const dur = t[b] - t[a], dist = km[b] - km[a];
+    if (dur >= 15 && dist / dur * 3600 > 10) {
+      D.tunnels.push({ i0: a, i1: b, km0: km[a], km1: km[b], t0: t[a], t1: t[b] });
+      for (let k = i; k <= j; k++) D.cols.tun[k] = 1;
+    }
+    i = j;
+  }
+}
+
+// Fraction of [km0, km1] that lies inside tunnels.
+function tunnelShare(km0, km1) {
+  if (km1 <= km0) return 0;
+  let inside = 0;
+  for (const tn of D.tunnels) inside += Math.max(0, Math.min(km1, tn.km1) - Math.max(km0, tn.km0));
+  return inside / (km1 - km0);
+}
+
+// Time (s) represented by sample i, capped so logger restarts don't count.
+function dt(i) { return i + 1 < N ? Math.min(30, D.cols.t[i + 1] - D.cols.t[i]) : 0; }
 
 function ist(t, opts = {}) {
   return new Date((START + t) * 1000).toLocaleString('en-IN', {
@@ -62,10 +117,10 @@ function fmtDur(s) {
 // Distance travelled between sample i and i+1 (the weight of sample i).
 function seg(i) { return i + 1 < N ? D.cols.km[i + 1] - D.cols.km[i] : 0; }
 
-// Distance-weighted share of each class within [i0, i1).
-function shares(kind, i0 = 0, i1 = N) {
-  const w = [0, 0, 0, 0];
-  for (let i = i0; i < i1; i++) w[cls(kind, i)] += seg(i);
+// Share of each class within [i0, i1), by distance (default) or by time.
+function shares(kind, i0 = 0, i1 = N, byTime = false) {
+  const w = CLASSES[kind].map(() => 0);
+  for (let i = i0; i < i1; i++) w[cls(kind, i)] += byTime ? dt(i) : seg(i);
   const tot = w.reduce((a, b) => a + b, 0) || 1;
   return w.map(x => x / tot);
 }
@@ -117,6 +172,8 @@ function init(data) {
   D = data;
   N = D.cols.t.length;
   START = D.meta.start;
+  computeSpeeds();
+  computeTunnels();
   const m = D.meta;
   const date = new Date(m.start * 1000).toLocaleDateString('en-IN', {
     timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric',
@@ -131,17 +188,19 @@ function init(data) {
   renderRoute();
   renderSegments();
   renderDeadZones();
+  renderSpeedChart();
 
   document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
     document.querySelectorAll('.seg button').forEach(x => x.classList.toggle('on', x === b));
     mode = b.dataset.mode;
     drawTrack();
+    drawDeadZonePins();
     renderLegend();
   }));
   let rt;
-  addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(renderRoute, 150); });
+  addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { map.invalidateSize(); renderRoute(); }, 150); });
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-    drawTrack(); renderLegend(); renderRoute(); renderSegments(); renderDeadZones();
+    drawTrack(); renderLegend(); renderRoute(); renderSegments(); renderDeadZones(); renderSpeedChart();
   });
 }
 
@@ -168,12 +227,20 @@ function renderKpis() {
     [dz.length, 'dead zones of a minute or more', `${fmtDur(deadTime)} without internet`],
     [longest ? fmtDur(longest.dur) : '–', 'longest dead zone',
       longest ? `${(longest.km1 - longest.km0).toFixed(0)} km, ${longest.where}` : ''],
+    [D.tunnels.length, 'probable tunnels (GPS lost)', tunnelSummary()],
     [`${median(pings)} ms`, 'median ping when connected', `90th percentile ${pings.sort((a, b) => a - b)[Math.floor(pings.length * 0.9)]} ms`],
     [`${loss.toFixed(1)}%`, 'packet loss when connected', `${pings.length.toLocaleString('en-IN')} ping tests`],
   ];
   $('#kpis').innerHTML = tiles.map(([v, l, d]) =>
     `<div class="kpi"><div class="v">${esc(v)}</div><div class="l">${esc(l)}</div><div class="d">${esc(d)}</div></div>`
   ).join('');
+}
+
+function tunnelSummary() {
+  const km = D.tunnels.reduce((a, tn) => a + tn.km1 - tn.km0, 0);
+  let w = 0, bad = 0;
+  for (let i = 0; i < N; i++) if (D.cols.tun[i] && D.cols.inet[i] != null) { w += dt(i); if (D.cols.inet[i] === 2) bad += dt(i); }
+  return `${km.toFixed(0)} km · internet down ${w ? pct(bad / w) : '–'} of the time inside`;
 }
 
 // ---------------------------------------------------------------- map
@@ -186,7 +253,6 @@ function initMap() {
     'Satellite': L.tileLayer(esri('World_Imagery'), { maxZoom: 18, attribution: 'Imagery &copy; Esri' }),
   };
   base['Map'].addTo(map);
-  L.control.layers(base, null, { position: 'topright' }).addTo(map);
   map.on('click', () => map.scrollWheelZoom.enable());
   // The canvas renderer needs a view before any vector layer is added.
   map.fitBounds(D.cols.lat.map((la, i) => [la, D.cols.lon[i]]), { padding: [20, 20] });
@@ -194,21 +260,32 @@ function initMap() {
   trackLayer = L.layerGroup().addTo(map);
   drawTrack();
 
-  // 22120 halts: large dark markers with permanent labels. Other stations: small dots, name on hover.
-  for (const s of D.stations) {
-    const halt = HALTS.has(s.name), last = s.name === LAST_STATION();
+  // Only the 22120 halts and the point where the log ends are marked.
+  for (const s of D.stations.filter(s => isKey(s.name))) {
+    const halt = HALTS.has(s.name);
     const passed = ist(D.cols.t[idxAtKm(s.km)]);
-    const label = halt ? `<b>${esc(s.name)}</b>` : last ? `${esc(s.name)} · log ends` : esc(s.name);
-    const marker = L.circleMarker([s.lat, s.lon], {
-      radius: halt ? 6 : last ? 5 : 2.5, color: '#ffffff', weight: halt ? 2 : 1,
-      fillColor: '#1a1a19', fillOpacity: 1,
-    }).bindTooltip(label, {
-      className: 'stn', permanent: halt || last, direction: last ? 'left' : 'right', offset: [last ? -8 : 8, 0],
-    }).addTo(map);
-    marker.bindPopup(halt
+    L.circleMarker([s.lat, s.lon], {
+      radius: halt ? 6 : 5, color: '#ffffff', weight: 2, fillColor: '#1a1a19', fillOpacity: 1,
+    }).bindTooltip(halt ? `<b>${esc(s.name)}</b>` : `${esc(s.name)} · log ends`, {
+      className: 'stn', permanent: true, direction: halt ? 'right' : 'left', offset: [halt ? 9 : -9, 0],
+    }).bindPopup(halt
       ? `<b>${esc(s.name)}</b> · ${TRAIN.number} halt<br>Scheduled ${HALTS.get(s.name)} · passed ${passed} IST`
-      : `<b>${esc(s.name)}</b><br>Passed ${passed} IST`);
+      : `<b>${esc(s.name)}</b><br>Log ends here, ${passed} IST`
+    ).addTo(map);
   }
+  dzLayer = L.layerGroup().addTo(map);
+  drawDeadZonePins();
+
+  // Tunnels: dark dashed centre line over the coloured track. Toggle in the layers control.
+  const tunnelLayer = L.layerGroup().addTo(map);
+  for (const tn of D.tunnels) {
+    const ll = [];
+    for (let i = tn.i0; i <= tn.i1; i++) ll.push([D.cols.lat[i], D.cols.lon[i]]);
+    L.polyline(ll, { color: '#1a1a19', weight: 3, dashArray: '1 6', lineCap: 'round', opacity: 0.9 })
+      .bindTooltip(`Probable tunnel · ${(tn.km1 - tn.km0).toFixed(1)} km · ${fmtDur(tn.t1 - tn.t0)} without GPS`, { sticky: true })
+      .addTo(tunnelLayer);
+  }
+  L.control.layers(base, { 'Tunnels (GPS lost)': tunnelLayer }, { position: 'topright' }).addTo(map);
   hoverMarker = L.circleMarker([0, 0], { radius: 8, color: '#0b0b0b', weight: 2, fillOpacity: 0 });
 }
 
@@ -221,15 +298,42 @@ function drawTrack() {
     return c;
   };
   // Casing underneath so the coloured line reads on any background.
-  L.polyline(coords(0, N - 1), { color: css('--casing'), weight: 9, opacity: 0.9, interactive: false }).addTo(trackLayer);
-  for (const r of runs(mode)) {
+  const bad = BAD[mode];
+  L.polyline(coords(0, N - 1), { color: css('--casing'), weight: 8, opacity: 0.9, interactive: false }).addTo(trackLayer);
+  // Draw the no-connectivity runs last, wider and with their own casing, so they read at any zoom.
+  const rs = runs(mode).sort((a, b) => (a.c === bad) - (b.c === bad));
+  for (const r of rs) {
+    const isBad = r.c === bad;
+    if (isBad) {
+      L.polyline(coords(r.i0, r.i1), { color: css('--casing'), weight: 12, opacity: 1, interactive: false }).addTo(trackLayer);
+    }
     L.polyline(coords(r.i0, r.i1), {
-      color: css(CLASSES[mode][r.c].color), weight: 5, opacity: 1, lineCap: 'butt',
+      color: css(CLASSES[mode][r.c].color), weight: isBad ? 8 : 4, opacity: 1, lineCap: isBad ? 'round' : 'butt',
     }).on('mousemove', e => {
       const i = nearestIndex(e.latlng, r.i0, r.i1);
       showTip(e.originalEvent.clientX, e.originalEvent.clientY, i);
     }).on('mouseout', hideTip).addTo(trackLayer);
   }
+}
+
+// Numbered pins on the 10 longest dead zones, matching the table ranks.
+function drawDeadZonePins() {
+  dzLayer.clearLayers();
+  if (mode === 'spd') return;
+  const top = D.deadzones.slice().sort((a, b) => b.dur - a.dur).slice(0, 10);
+  top.forEach((z, k) => {
+    const i = idxAtKm((z.km0 + z.km1) / 2);
+    L.marker([D.cols.lat[i], D.cols.lon[i]], {
+      icon: L.divIcon({ className: 'dz-pin', html: `${k + 1}`, iconSize: [22, 22] }),
+      title: `Dead zone ${k + 1}: ${fmtDur(z.dur)}, ${z.where}`,
+      zIndexOffset: 1000 - k,
+    }).on('click', () => {
+      showAllDead = showAllDead || k >= 10;
+      renderDeadZones();
+      const tr = document.querySelector(`#dead tr[data-k="${k}"]`);
+      zoomTo(idxAtKm(z.km0), idxAtKm(z.km1), tr, false);
+    }).addTo(dzLayer);
+  });
 }
 
 function nearestIndex(ll, i0, i1) {
@@ -242,12 +346,15 @@ function nearestIndex(ll, i0, i1) {
 }
 
 function renderLegend() {
-  const sh = shares(mode);
+  const byTime = mode === 'spd';
+  const sh = shares(mode, 0, N, byTime);
   const items = CLASSES[mode].map((c, k) => ({ ...c, share: sh[k] }))
     .filter((c, k) => !(mode === 'inet' && k === UNKNOWN && c.share < 0.005));
   $('#legend').innerHTML = items.map(c =>
     `<span><i class="sw" style="background:var(${c.color})"></i>${c.label} <b>${pct(c.share)}</b></span>`
-  ).join('') + `<span style="color:var(--muted)">share of distance</span>`;
+  ).join('') + `<span style="color:var(--muted)">share of ${byTime ? 'time' : 'distance'}</span>` +
+    (mode === 'spd' ? '' : `<span><i class="dz-key">1</i>longest dead zones</span>`) +
+    `<span><i class="tun-key"></i>tunnel (GPS lost)</span>`;
 }
 
 // ---------------------------------------------------------------- tooltip
@@ -261,7 +368,8 @@ function showTip(x, y, i) {
     ['Internet', CLASSES.inet[inet ?? UNKNOWN].label + (c.ms[i] != null ? ` · ${c.ms[i]} ms` : '')],
     ['Signal', c.sig[i] === 3 ? 'No service' : `${CLASSES.sig[c.sig[i]].label} · ${c.rsrp[i]} dBm`],
     ['Band', c.band[i] || '–'],
-    ['Speed', c.spd[i] != null ? `${c.spd[i]} km/h` : (c.interp[i] ? 'no GPS (tunnel?)' : '–')],
+    ['Speed', `${c.v[i]} km/h` + (c.interp[i] ? ' (estimated)' : '')],
+    ...(c.tun[i] ? [['Location', 'in a tunnel (GPS lost)']] : []),
   ];
   const tip = $('#tip');
   tip.innerHTML = `<div class="h">${esc(between(c.km[i]))}</div>` +
@@ -292,8 +400,8 @@ function renderRoute() {
   const x = k => ml + (k / total) * pw;
 
   const bandH = 18, gap = 6;
-  const yInet = 0, ySig = bandH + gap;
-  const yStn = ySig + bandH + 8;
+  const yInet = 0, ySig = bandH + gap, ySpd = 2 * (bandH + gap), yTun = 3 * (bandH + gap), tunH = 10;
+  const yStn = yTun + tunH + 8;
   const chartTop = yStn + 44, chartH = narrow ? 150 : 190;
   const H = chartTop + chartH + 26;
   const yMin = -130, yMax = -65;
@@ -301,7 +409,7 @@ function renderRoute() {
 
   const parts = [];
   // Bands: merge runs, 1px minimum so short dead spots stay visible.
-  for (const [kind, y0, label] of [['inet', yInet, 'Internet'], ['sig', ySig, 'Signal']]) {
+  for (const [kind, y0, label] of [['inet', yInet, 'Internet'], ['sig', ySig, 'Signal'], ['spd', ySpd, 'Speed']]) {
     parts.push(`<text class="rowlabel" x="0" y="${y0 + 13}">${label}</text>`);
     for (const r of runs(kind)) {
       const k0 = D.cols.km[r.i0], k1 = D.cols.km[Math.min(r.i1, N - 1)];
@@ -309,14 +417,16 @@ function renderRoute() {
       parts.push(`<rect x="${x(k0).toFixed(1)}" y="${y0}" width="${wpx.toFixed(1)}" height="${bandH}" fill="var(${CLASSES[kind][r.c].color})"/>`);
     }
   }
+  parts.push(`<text class="rowlabel" x="0" y="${yTun + 9}">Tunnels</text>`);
+  parts.push(`<rect x="${ml}" y="${yTun + tunH / 2 - 0.5}" width="${pw}" height="1" fill="var(--grid)"/>`);
+  for (const tn of D.tunnels) {
+    parts.push(`<rect x="${x(tn.km0).toFixed(1)}" y="${yTun}" width="${Math.max(1.5, x(tn.km1) - x(tn.km0)).toFixed(1)}" height="${tunH}" rx="2" fill="var(--text-2)"/>`);
+  }
   // Station ticks + non-overlapping labels.
   let lastLabelEnd = -Infinity;
   for (const s of D.stations) {
     const sx = x(s.km);
-    if (!isKey(s.name)) {  // minor station: short faint tick only
-      parts.push(`<line x1="${sx}" x2="${sx}" y1="${yStn - 3}" y2="${yStn}" stroke="var(--muted)" stroke-width="1" opacity=".5"/>`);
-      continue;
-    }
+    if (!isKey(s.name)) continue;
     parts.push(`<line x1="${sx}" x2="${sx}" y1="${yStn - 4}" y2="${chartTop + chartH}" stroke="var(--grid)" stroke-width="1"/>`);
     parts.push(`<line x1="${sx}" x2="${sx}" y1="${yStn - 4}" y2="${yStn + 3}" stroke="var(--text-2)" stroke-width="1.5"/>`);
     // Skip a label if it would collide with the previous one (≈6 px per character).
@@ -423,6 +533,14 @@ function renderSegments() {
   }));
 }
 
+function causeTag(z) {
+  const inTunnel = tunnelShare(z.km0, z.km1) >= 0.5;
+  const label = inTunnel ? 'tunnel' : z.cause;
+  const sw = inTunnel ? '<i class="tun-key"></i>'
+    : `<i class="sw" style="background:var(${z.cause === 'no service' ? '--critical' : '--warning'})"></i>`;
+  return `<span class="tag">${sw}${esc(label)}</span>`;
+}
+
 let showAllDead = false;
 function renderDeadZones() {
   const dz = D.deadzones.slice().sort((a, b) => b.dur - a.dur);
@@ -435,7 +553,7 @@ function renderDeadZones() {
       <td class="n">${ist(z.t0 - START)}</td>
       <td class="n"><b>${fmtDur(z.dur)}</b></td>
       <td class="n">${(z.km1 - z.km0).toFixed(1)}</td>
-      <td><span class="tag"><i class="sw" style="background:var(${z.cause === 'no service' ? '--critical' : '--warning'})"></i>${esc(z.cause)}</span></td>
+      <td>${causeTag(z)}</td>
     </tr>`).join('') + '</tbody>';
   $('#dead').querySelectorAll('tr.click').forEach(tr => tr.addEventListener('click', () => {
     const z = list[tr.dataset.k];
@@ -447,11 +565,37 @@ function renderDeadZones() {
   more.onclick = () => { showAllDead = !showAllDead; renderDeadZones(); };
 }
 
-function zoomTo(i0, i1, tr) {
+function zoomTo(i0, i1, tr, scroll = true) {
   document.querySelectorAll('tr.sel').forEach(r => r.classList.remove('sel'));
-  tr.classList.add('sel');
+  if (tr) tr.classList.add('sel');
   const ll = [];
   for (let i = Math.max(0, i0 - 3); i <= Math.min(N - 1, i1 + 3); i++) ll.push([D.cols.lat[i], D.cols.lon[i]]);
-  $('#map').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  if (scroll) $('#map').scrollIntoView({ behavior: 'smooth', block: 'center' });
   map.fitBounds(ll, { padding: [40, 40], maxZoom: 14 });
+}
+
+// ---------------------------------------------------------------- speed vs internet
+
+// For each speed band: time spent, and how the internet behaved (time-weighted, tested samples only).
+function renderSpeedChart() {
+  const bins = CLASSES.spd.map(() => ({ time: 0, inet: [0, 0, 0] }));
+  for (let i = 0; i < N; i++) {
+    const b = bins[cls('spd', i)], w = dt(i);
+    b.time += w;
+    const n = D.cols.inet[i];
+    if (n != null) b.inet[n] += w;
+  }
+  const total = bins.reduce((a, b) => a + b.time, 0);
+  $('#speedchart').innerHTML =
+    `<thead><tr><th>Train speed</th><th class="n">Time</th><th class="n">Internet</th><th style="width:45%">Internet by time</th></tr></thead><tbody>` +
+    bins.map((b, k) => {
+      const tested = b.inet[0] + b.inet[1] + b.inet[2];
+      const sh = tested ? b.inet.map(x => x / tested) : [0, 0, 0];
+      return `<tr>
+        <td><span class="tag"><i class="sw" style="background:var(${CLASSES.spd[k].color})"></i>${CLASSES.spd[k].label.replace(' km/h', '')} km/h${k === 0 ? ' <span class="muted">(incl. halts)</span>' : ''}</span></td>
+        <td class="n">${fmtDur(b.time)} <span class="muted">(${pct(b.time / total)})</span></td>
+        <td class="n"><b>${tested ? pct(sh[0] + sh[1]) : '–'}</b></td>
+        <td>${stackBar(sh, 'inet')}</td>
+      </tr>`;
+    }).join('') + '</tbody>';
 }
