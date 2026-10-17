@@ -30,7 +30,7 @@
       <div class="seg" role="group" aria-label="Colour the map by">
         <button data-mode="inet" class="on">Internet</button>
         <button data-mode="sig">Signal</button>
-        <button data-mode="spd">Speed</button>
+        <button data-mode="spd">Train speed</button>
       </div>
     </div>
     <div class="legend" id="legend"></div>
@@ -50,7 +50,7 @@
   <section class="card">
     <div class="card-head"><div>
       <h2>Internet by train speed</h2>
-      <p class="hint">How long the train spent in each speed band, and how often the internet worked at that speed. Switch the map to <b>Speed</b> to see where it ran fast, slow or stopped.</p>
+      <p class="hint">How long the train spent in each speed band, and how often the internet worked at that speed. Switch the map to <b>Train speed</b> to see where it ran fast, slow or stopped.</p>
     </div></div>
     <div class="table-wrap"><table id="speedchart"></table></div>
     <p class="hint" id="stopsummary"></p>
@@ -80,7 +80,7 @@
     <ul>
       <li>Every 15 seconds, 3 pings were sent to 8.8.8.8 over the mobile connection. <b>Working</b> means all replies arrived within 1 s, <b>degraded</b> means some were lost or slow, <b>not working</b> means none came back or there was no network.</li>
       <li>Signal classes use RSRP: <b>good</b> ≥ −100 dBm, <b>fair</b> −100 to −110 dBm, <b>poor</b> below −110 dBm. Percentages are by distance travelled, not by time, so long halts at stations don't skew them.</li>
-      <li>Positions inside tunnels (no GPS) are interpolated between the last and next fix. Station locations are approximate. One phone-class antenna inside a steel coach reads lower than a handset by the window; treat it as a lower bound.</li>
+      <li>The map and route bands smooth over blips shorter than 1 km and 2 minutes so long stretches read cleanly; all numbers and tables use the raw measurements. Positions inside tunnels (no GPS) are interpolated between the last and next fix. Station locations are approximate. One phone-class antenna inside a steel coach reads lower than a handset by the window; treat it as a lower bound.</li>
     </ul>
   </section>
 </main>

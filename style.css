@@ -71,7 +71,7 @@ h2 { margin: 0; font-size: 17px; }
 
 .kpis {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }

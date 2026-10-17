@@ -164,17 +164,51 @@ function between(k) {
 }
 
 // Runs of consecutive samples with the same class.
-function runs(kind) {
+// Runs of consecutive samples with the same class in an array of classes.
+function runsOf(c) {
   const out = [];
   let start = 0;
   for (let i = 1; i <= N; i++) {
-    if (i === N || cls(kind, i) !== cls(kind, start)) {
-      out.push({ i0: start, i1: i, c: cls(kind, start) });
+    if (i === N || c[i] !== c[start]) {
+      out.push({ i0: start, i1: i, c: c[start] });
       start = i;
     }
   }
   return out;
 }
+
+// Display classes for the map and route bands: blips shorter than 1 km and 2 min
+// are absorbed into their surroundings so long stretches read as one clean run.
+// Statistics and tables always use the raw classes.
+const SMOOTH_KM = 1, SMOOTH_S = 120;
+const displayCache = {};
+function displayClasses(kind) {
+  if (displayCache[kind]) return displayCache[kind];
+  const { km, t } = D.cols;
+  const c = Array.from({ length: N }, (_, i) => cls(kind, i));
+  const len = r => km[Math.min(r.i1, N - 1)] - km[r.i0];
+  for (let pass = 0; pass < 8; pass++) {
+    const rs = runsOf(c);
+    let changed = false;
+    // Shortest blips first, so a blip is judged against settled neighbours.
+    const order = rs.map((r, k) => k).sort((p, q) => len(rs[p]) - len(rs[q]));
+    for (const k of order) {
+      const r = rs[k];
+      if (len(r) >= SMOOTH_KM || t[Math.min(r.i1, N - 1)] - t[r.i0] >= SMOOTH_S) continue;
+      const a = rs[k - 1], b = rs[k + 1];
+      if (!a && !b) continue;
+      const into = !b ? a : !a ? b : a.c === b.c ? a : (len(a) >= len(b) ? a : b);
+      if (into.c === r.c) continue;
+      for (let i = r.i0; i < r.i1; i++) c[i] = into.c;
+      r.c = into.c;
+      changed = true;
+    }
+    if (!changed) break;
+  }
+  return (displayCache[kind] = c);
+}
+
+function runs(kind) { return runsOf(displayClasses(kind)); }
 
 function median(a) {
   if (!a.length) return null;
@@ -221,7 +255,15 @@ function init(data) {
     renderLegend();
   }));
   let rt;
-  addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { map.invalidateSize(); renderRoute(); }, 150); });
+  // Redraw the route chart whenever its container changes width (window resize, scrollbar, zoom).
+  let lastW = 0;
+  new ResizeObserver(([e]) => {
+    const w = Math.round(e.contentRect.width);
+    if (w === lastW) return;
+    lastW = w;
+    clearTimeout(rt);
+    rt = setTimeout(() => { map.invalidateSize(); renderRoute(); }, 100);
+  }).observe($('#route'));
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
     drawTrack(); renderLegend(); renderRoute(); renderSegments(); renderDeadZones(); renderSpeedChart();
   });
@@ -418,7 +460,7 @@ function showTip(x, y, i) {
     ['Internet', CLASSES.inet[inet ?? UNKNOWN].label + (c.ms[i] != null ? ` · ${c.ms[i]} ms` : '')],
     ['Signal', c.sig[i] === 3 ? 'No service' : `${CLASSES.sig[c.sig[i]].label} · ${c.rsrp[i]} dBm`],
     ['Band', c.band[i] || '–'],
-    ['Speed', c.v[i] < 5 ? 'stopped' : `${c.v[i]} km/h` + (c.interp[i] ? ' (estimated)' : '')],
+    ['Train speed', c.v[i] < 5 ? 'stopped' : `${c.v[i]} km/h` + (c.interp[i] ? ' (estimated)' : '')],
     ...(c.tun[i] ? [['Location', 'in a tunnel (GPS lost)']] : []),
   ];
   const tip = $('#tip');
@@ -444,7 +486,7 @@ function renderRoute() {
   const W = el.clientWidth;
   if (!W) return;
   const narrow = W < 600;
-  const ml = narrow ? 64 : 78, mr = narrow ? 12 : 44;
+  const ml = narrow ? 80 : 88, mr = narrow ? 12 : 44;
   const pw = W - ml - mr;
   const total = D.meta.km;
   const x = k => ml + (k / total) * pw;
@@ -459,7 +501,7 @@ function renderRoute() {
 
   const parts = [];
   // Bands: merge runs, 1px minimum so short dead spots stay visible.
-  for (const [kind, y0, label] of [['inet', yInet, 'Internet'], ['sig', ySig, 'Signal'], ['spd', ySpd, 'Speed']]) {
+  for (const [kind, y0, label] of [['inet', yInet, 'Internet'], ['sig', ySig, 'Signal'], ['spd', ySpd, 'Train speed']]) {
     parts.push(`<text class="rowlabel" x="0" y="${y0 + 13}">${label}</text>`);
     for (const r of runs(kind)) {
       const k0 = D.cols.km[r.i0], k1 = D.cols.km[Math.min(r.i1, N - 1)];
@@ -657,5 +699,5 @@ function renderSpeedChart() {
   const sum = a => fmtDur(a.reduce((x, z) => x + z.t1 - z.t0, 0));
   $('#stopsummary').textContent =
     `${D.stops.length} stops of a minute or more: ${halts.length} at ${TRAIN.number} halts (${sum(halts)}) ` +
-    `and ${other.length} unscheduled (${sum(other)}). Switch the map to Speed to see them.`;
+    `and ${other.length} unscheduled (${sum(other)}). Switch the map to Train speed to see them.`;
 }
