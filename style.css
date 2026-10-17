@@ -104,7 +104,7 @@ h2 { margin: 0; font-size: 17px; }
 .legend b { color: var(--text); font-weight: 600; }
 .sw { width: 12px; height: 12px; border-radius: 3px; flex: none; }
 
-#map { height: 520px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); }
+#map { height: 680px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); }
 .leaflet-container { font: inherit; }
 .leaflet-tooltip.stn {
   background: var(--surface); color: var(--text); border: 1px solid var(--border);

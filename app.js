@@ -18,9 +18,15 @@ const CLASSES = {
   ],
 };
 const UNKNOWN = 3;  // index used for inet === null
-// Main stations: used for map labels, chart labels and the station-to-station table.
-const MAJOR = new Set(['Madgaon', 'Thivim', 'Sawantwadi Road', 'Kudal', 'Kankavli', 'Vaibhavwadi Road',
-  'Rajapur Road', 'Ratnagiri', 'Sangameshwar Road', 'Chiplun', 'Khed', 'Veer', 'Mangaon', 'Roha', 'Pen', 'Panvel', 'Nilaje']);
+// Train 22120 (Madgaon – Mumbai CSMT Tejas Express) halts with scheduled times
+// (ConfirmTkt). Thane, Dadar and CSMT come after the log ends, so they're omitted.
+const TRAIN = { number: '22120', name: 'Tejas Express' };
+const HALTS = new Map([
+  ['Madgaon', 'dep 12:50'], ['Karmali', '13:30'], ['Kudal', '14:48'],
+  ['Ratnagiri', '18:05'], ['Chiplun', '19:40'], ['Panvel', '22:25'],
+]);
+const isKey = name => HALTS.has(name) || name === LAST_STATION();
+const LAST_STATION = () => D.stations[D.stations.length - 1].name;
 
 const $ = s => document.querySelector(s);
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -188,13 +194,20 @@ function initMap() {
   trackLayer = L.layerGroup().addTo(map);
   drawTrack();
 
-  const labelled = new Set(['Madgaon', 'Thivim', 'Kudal', 'Kankavli', 'Ratnagiri', 'Chiplun', 'Khed', 'Roha', 'Panvel']);
+  // 22120 halts: large dark markers with permanent labels. Other stations: small dots, name on hover.
   for (const s of D.stations) {
-    L.circleMarker([s.lat, s.lon], {
-      radius: MAJOR.has(s.name) ? 4 : 2.5, color: '#1a1a19', weight: 1.5, fillColor: '#ffffff', fillOpacity: 1,
-    }).bindTooltip(s.name, {
-      className: 'stn', permanent: labelled.has(s.name), direction: 'right', offset: [6, 0],
+    const halt = HALTS.has(s.name), last = s.name === LAST_STATION();
+    const passed = ist(D.cols.t[idxAtKm(s.km)]);
+    const label = halt ? `<b>${esc(s.name)}</b>` : last ? `${esc(s.name)} · log ends` : esc(s.name);
+    const marker = L.circleMarker([s.lat, s.lon], {
+      radius: halt ? 6 : last ? 5 : 2.5, color: '#ffffff', weight: halt ? 2 : 1,
+      fillColor: '#1a1a19', fillOpacity: 1,
+    }).bindTooltip(label, {
+      className: 'stn', permanent: halt || last, direction: last ? 'left' : 'right', offset: [last ? -8 : 8, 0],
     }).addTo(map);
+    marker.bindPopup(halt
+      ? `<b>${esc(s.name)}</b> · ${TRAIN.number} halt<br>Scheduled ${HALTS.get(s.name)} · passed ${passed} IST`
+      : `<b>${esc(s.name)}</b><br>Passed ${passed} IST`);
   }
   hoverMarker = L.circleMarker([0, 0], { radius: 8, color: '#0b0b0b', weight: 2, fillOpacity: 0 });
 }
@@ -298,10 +311,14 @@ function renderRoute() {
   }
   // Station ticks + non-overlapping labels.
   let lastLabelEnd = -Infinity;
-  for (const s of D.stations.filter(s => MAJOR.has(s.name))) {
+  for (const s of D.stations) {
     const sx = x(s.km);
+    if (!isKey(s.name)) {  // minor station: short faint tick only
+      parts.push(`<line x1="${sx}" x2="${sx}" y1="${yStn - 3}" y2="${yStn}" stroke="var(--muted)" stroke-width="1" opacity=".5"/>`);
+      continue;
+    }
     parts.push(`<line x1="${sx}" x2="${sx}" y1="${yStn - 4}" y2="${chartTop + chartH}" stroke="var(--grid)" stroke-width="1"/>`);
-    parts.push(`<line x1="${sx}" x2="${sx}" y1="${yStn - 4}" y2="${yStn + 2}" stroke="var(--muted)" stroke-width="1"/>`);
+    parts.push(`<line x1="${sx}" x2="${sx}" y1="${yStn - 4}" y2="${yStn + 3}" stroke="var(--text-2)" stroke-width="1.5"/>`);
     // Skip a label if it would collide with the previous one (≈6 px per character).
     const name = s.name.replace(' Road', ' Rd');
     const w = name.length * 6.2;
@@ -380,7 +397,7 @@ function stackBar(sh, kind) {
 function renderSegments() {
   const km = D.cols.km;
   const rows = [];
-  const s = D.stations.filter(st => MAJOR.has(st.name));
+  const s = D.stations.filter(st => isKey(st.name));
   for (let j = 0; j + 1 < s.length; j++) {
     const a = s[j], b = s[j + 1];
     const i0 = idxAtKm(a.km), i1 = idxAtKm(b.km);

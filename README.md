@@ -1,6 +1,6 @@
 # Konkan Railway mobile coverage
 
-A static dashboard showing Airtel LTE coverage and internet availability measured on a train from Madgaon to Panvel on 16 Oct 2026. The trip was 537 km, about 14 hours and 9,746 measurements.
+A static dashboard showing Airtel LTE coverage and internet availability measured on train 22120 (Tejas Express) from Madgaon to Panvel and on to Nilaje, where the log ends, on 16 Oct 2026. The trip was 537 km, about 14 hours and 9,746 measurements.
 
 It shows:
 - headline numbers

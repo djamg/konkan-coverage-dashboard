@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Konkan Rail Coverage</title>
-<meta name="description" content="Airtel LTE coverage and internet availability measured on a train from Madgaon to Panvel.">
+<meta name="description" content="Airtel LTE coverage and internet availability measured on train 22120 Tejas Express from Madgaon towards Mumbai.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 12h2v2H2zM6 9h2v5H6zM10 5h2v9h-2z' fill='%230ca30c'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="vendor/leaflet.css">
 <link rel="stylesheet" href="style.css">
@@ -13,7 +13,7 @@
 <main>
   <header class="top">
     <div>
-      <p class="eyebrow">Field measurement · Airtel LTE (M2M SIM)</p>
+      <p class="eyebrow">Train 22120 Tejas Express · Field measurement · Airtel LTE (M2M SIM)</p>
       <h1>Mobile coverage on the Konkan Railway</h1>
       <p class="sub" id="sub">Loading trip…</p>
     </div>
@@ -25,7 +25,7 @@
     <div class="card-head">
       <div>
         <h2>Route map</h2>
-        <p class="hint">Each stretch of track is coloured by what the device measured there. Hover the chart below to follow the train.</p>
+        <p class="hint">Each stretch of track is coloured by what the device measured there. Large dots are 22120 halts, small dots are stations it passes through. Click a halt for scheduled vs actual time.</p>
       </div>
       <div class="seg" role="group" aria-label="Colour the map by">
         <button data-mode="inet" class="on">Internet</button>
@@ -49,8 +49,8 @@
   <div class="two">
     <section class="card">
       <div class="card-head"><div>
-        <h2>Station to station</h2>
-        <p class="hint">Share of each stretch's distance where the internet worked.</p>
+        <h2>Stop to stop</h2>
+        <p class="hint">Between the 22120 halts: share of each stretch's distance where the internet worked.</p>
       </div></div>
       <div class="table-wrap"><table id="segments"></table></div>
     </section>
