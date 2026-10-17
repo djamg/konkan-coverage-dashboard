@@ -59,7 +59,7 @@
     <section class="card">
       <div class="card-head"><div>
         <h2>Stop to stop</h2>
-        <p class="hint">Between the 22120 halts: share of each stretch's distance where the internet worked.</p>
+        <p class="hint">Between the 22120 halts: share of each stretch's distance where the internet was working (degraded doesn't count).</p>
       </div></div>
       <div class="table-wrap"><table id="segments"></table></div>
     </section>
@@ -77,8 +77,7 @@
   <section class="card notes">
     <h2>How this was measured</h2>
     <ul>
-      <li>A LilyGo T-SIM7670G-S3 (SIMCom SIM7670G LTE modem with GNSS) rode in the coach and logged every 5 seconds: GPS position, network registration and LTE signal (RSRP, SINR, band).</li>
-      <li>Every 15 seconds it sent 3 pings to 8.8.8.8. <b>Working</b> means all replies arrived within 1 s, <b>degraded</b> means some were lost or slow, <b>not working</b> means none came back or there was no network.</li>
+      <li>Every 15 seconds, 3 pings were sent to 8.8.8.8 over the mobile connection. <b>Working</b> means all replies arrived within 1 s, <b>degraded</b> means some were lost or slow, <b>not working</b> means none came back or there was no network.</li>
       <li>Signal classes use RSRP: <b>good</b> ≥ −100 dBm, <b>fair</b> −100 to −110 dBm, <b>poor</b> below −110 dBm. Percentages are by distance travelled, not by time, so long halts at stations don't skew them.</li>
       <li>Positions inside tunnels (no GPS) are interpolated between the last and next fix. Station locations are approximate. One phone-class antenna inside a steel coach reads lower than a handset by the window; treat it as a lower bound.</li>
     </ul>

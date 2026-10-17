@@ -30,7 +30,7 @@ const BAD = { inet: 2, sig: 3 };
 const UNKNOWN = 3;  // index used for inet === null
 // Train 22120 (Madgaon – Mumbai CSMT Tejas Express) halts with scheduled times
 // (ConfirmTkt). Thane, Dadar and CSMT come after the log ends, so they're omitted.
-const TRAIN = { number: '22120', name: 'Tejas Express' };
+const TRAIN = { number: '22120', name: 'Tejas Express', destination: 'Dadar' };
 const HALTS = new Map([
   ['Madgaon', 'dep 12:50'], ['Karmali', '13:30'], ['Kudal', '14:48'],
   ['Ratnagiri', '18:05'], ['Chiplun', '19:40'], ['Panvel', '22:25'],
@@ -179,7 +179,7 @@ function init(data) {
     timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric',
   });
   $('#sub').textContent =
-    `${m.origin} → ${m.destination} · ${date} · ${Math.round(m.km)} km in ${fmtDur(m.end - m.start)} ` +
+    `${m.origin} → ${TRAIN.destination} · ${date} · ${Math.round(m.km)} km logged in ${fmtDur(m.end - m.start)} ` +
     `(${ist(0)}–${ist(m.end - m.start)} IST${dayDiff(m) ? ', next day' : ''}) · ${m.samples.toLocaleString('en-IN')} measurements`;
 
   renderKpis();
@@ -209,7 +209,7 @@ function init(data) {
 function renderKpis() {
   const inetTested = shares('inet');
   const testedTot = 1 - inetTested[UNKNOWN];
-  const working = (inetTested[0] + inetTested[1]) / (testedTot || 1);
+  const working = inetTested[0] / (testedTot || 1);  // degraded doesn't count
   const sig = shares('sig');
   const dz = D.deadzones;
   const longest = dz.reduce((a, b) => (b.dur > (a?.dur ?? 0) ? b : a), null);
@@ -514,7 +514,7 @@ function renderSegments() {
     if (i1 <= i0) continue;
     const sh = shares('inet', i0, i1);
     const tested = 1 - sh[UNKNOWN];
-    const working = tested ? (sh[0] + sh[1]) / tested : 0;
+    const working = tested ? sh[0] / tested : 0;
     const sig = shares('sig', i0, i1);
     rows.push({ a, b, i0, i1, sh, working, nosvc: sig[3], dist: km[i1] - km[i0] });
   }
@@ -594,7 +594,7 @@ function renderSpeedChart() {
       return `<tr>
         <td><span class="tag"><i class="sw" style="background:var(${CLASSES.spd[k].color})"></i>${CLASSES.spd[k].label.replace(' km/h', '')} km/h${k === 0 ? ' <span class="muted">(incl. halts)</span>' : ''}</span></td>
         <td class="n">${fmtDur(b.time)} <span class="muted">(${pct(b.time / total)})</span></td>
-        <td class="n"><b>${tested ? pct(sh[0] + sh[1]) : '–'}</b></td>
+        <td class="n"><b>${tested ? pct(sh[0]) : '–'}</b></td>
         <td>${stackBar(sh, 'inet')}</td>
       </tr>`;
     }).join('') + '</tbody>';
